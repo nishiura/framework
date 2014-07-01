@@ -8,6 +8,7 @@ use Illuminate\Mail\Transport\LogTransport;
 use Illuminate\Mail\Transport\MailgunTransport;
 use Illuminate\Mail\Transport\MandrillTransport;
 use Swift_SendmailTransport as SendmailTransport;
+use Swift_FailoverTransport as FailoverTransport;
 
 class MailServiceProvider extends ServiceProvider {
 
@@ -93,6 +94,9 @@ class MailServiceProvider extends ServiceProvider {
 	 */
 	protected function registerSwiftTransport($config)
 	{
+		if ($this->isFailoverRootConfig($config)) {
+			return $this->registerFailoverTransport($config);
+		}
 		switch ($config['driver'])
 		{
 			case 'smtp':
@@ -117,6 +121,33 @@ class MailServiceProvider extends ServiceProvider {
 				throw new \InvalidArgumentException('Invalid mail driver.');
 		}
 	}
+
+	private function isFailoverRootConfig($config) {
+		$i = 0;
+		foreach ($config as $key => $value) {
+			if ($i === $key) {
+				$i++;
+				continue;
+			} else {
+				return false;
+			}
+		}
+		return ($i > 1);
+	}
+
+	protected function registerFailoverTransport($config) {
+		$transport_array = array();
+		foreach($config as $value) {
+			$this->registerSwiftTransport($value);
+			$transport_array[] = $this->app['swift.transport'];
+		}
+
+		$this->app['swift.transport'] = $this->app->share(function() use ($transport_array)
+		{
+			return FailoverTransport::newInstance($transport_array);
+		});
+	}
+
 
 	/**
 	 * Register the SMTP Swift Transport instance.
